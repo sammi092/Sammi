@@ -598,6 +598,9 @@
       <button id="editCategoryBtn" class="btn-secondary" style="color:#e2e8f0;" title="編輯修改目前題庫">
         <span>✏️</span>
       </button>
+      <button id="deleteCategoryDirectBtn" class="btn-secondary" style="color:#f43f5e;" title="刪除目前題庫">
+        <span>🗑️</span>
+      </button>
     </div>
 
     <!-- 模式切換 -->
@@ -771,6 +774,21 @@
         <button id="copyShareUrlBtn" class="btn-primary-action" style="background:linear-gradient(90deg, #10b981, #0d9488);color:#0b132b;">
           📋 <span id="copyBtnText">一鍵複製連結</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 刪除題庫確認彈窗 -->
+  <div id="deleteConfirmModal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width:360px;">
+      <div style="font-size:32px;margin-bottom:8px;">🗑️</div>
+      <h3 class="modal-title" style="color:#f43f5e;">確定要刪除題庫？</h3>
+      <p id="deleteConfirmCategoryName" style="font-size:14px;font-weight:800;color:#f1f5f9;margin:8px 0 4px;"></p>
+      <p style="font-size:12px;color:#94a3b8;margin-bottom:16px;">此操作將永久從裝置移除該題庫，無法復原。</p>
+
+      <div style="display:flex;gap:8px;">
+        <button id="cancelDeleteModalBtn" class="btn-secondary" style="flex:1;justify-content:center;color:#cbd5e1;">取消</button>
+        <button id="confirmDeleteModalBtn" class="btn-primary-action" style="flex:1;background:linear-gradient(90deg, #f43f5e, #e11d48);color:#fff;">確認刪除</button>
       </div>
     </div>
   </div>
@@ -1032,6 +1050,14 @@
     const saveCustomBtn = document.getElementById('saveCustomBtn');
     const closeCustomModalBtn = document.getElementById('closeCustomModalBtn');
     const editCategoryBtn = document.getElementById('editCategoryBtn');
+    const deleteCategoryDirectBtn = document.getElementById('deleteCategoryDirectBtn');
+
+    // 刪除確認彈窗元件
+    const deleteConfirmModal = document.getElementById('deleteConfirmModal');
+    const deleteConfirmCategoryName = document.getElementById('deleteConfirmCategoryName');
+    const cancelDeleteModalBtn = document.getElementById('cancelDeleteModalBtn');
+    const confirmDeleteModalBtn = document.getElementById('confirmDeleteModalBtn');
+    let pendingDeleteId = null;
 
     // 分享彈窗元件
     const shareCategoryBtn = document.getElementById('shareCategoryBtn');
@@ -1610,18 +1636,50 @@
       initGame();
     });
 
-    deleteCustomBtn.addEventListener('click', () => {
-      if (!editingCategoryId || !savedCategories[editingCategoryId]) return;
-      delete savedCategories[editingCategoryId];
+    function promptDeleteCategory(catId) {
+      if (!catId || !savedCategories[catId]) {
+        showToast('目前沒有可刪除的題庫！', '⚠️');
+        return;
+      }
+      pendingDeleteId = catId;
+      deleteConfirmCategoryName.textContent = `「${savedCategories[catId].name}」`;
+      deleteConfirmModal.classList.remove('hidden');
+    }
+
+    function executeDeleteCategory(catId) {
+      if (!catId || !savedCategories[catId]) return;
+      const targetName = savedCategories[catId].name;
+      delete savedCategories[catId];
       const remainingIds = Object.keys(savedCategories);
       currentCategoryId = remainingIds.length > 0 ? remainingIds[0] : '';
 
       saveAllCategoriesToStorage();
       saveGameSettings();
       updateCategoryDropdown();
-      customModal.classList.add('hidden');
-      showToast('題庫已刪除', '🗑️');
+      showToast(`已成功刪除「${targetName}」題庫`, '🗑️');
       initGame();
+    }
+
+    deleteCategoryDirectBtn.addEventListener('click', () => {
+      promptDeleteCategory(currentCategoryId);
+    });
+
+    deleteCustomBtn.addEventListener('click', () => {
+      customModal.classList.add('hidden');
+      promptDeleteCategory(editingCategoryId || currentCategoryId);
+    });
+
+    cancelDeleteModalBtn.addEventListener('click', () => {
+      deleteConfirmModal.classList.add('hidden');
+      pendingDeleteId = null;
+    });
+
+    confirmDeleteModalBtn.addEventListener('click', () => {
+      if (pendingDeleteId) {
+        executeDeleteCategory(pendingDeleteId);
+        pendingDeleteId = null;
+      }
+      deleteConfirmModal.classList.add('hidden');
     });
 
     cancelCustomBtn.addEventListener('click', () => customModal.classList.add('hidden'));
