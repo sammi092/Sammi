@@ -168,7 +168,7 @@
 
     @media (min-width: 640px) {
       .controls-grid {
-        grid-template-columns: 2fr 1.3fr 1.2fr 1fr 1fr;
+        grid-template-columns: 2fr 1.3fr 1.1fr 1fr;
         gap: 8px;
       }
     }
@@ -609,15 +609,6 @@
       <svg class="select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
     </div>
 
-    <!-- 拼字開關 -->
-    <div class="select-wrap">
-      <select id="spellingToggleSelect" class="custom-select">
-        <option value="off" selected>⚡ 免拼字 (直接消除)</option>
-        <option value="on">✍️ 拼字挑戰 (需輸入英文)</option>
-      </select>
-      <svg class="select-arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-    </div>
-
     <!-- 挑戰組數 -->
     <div class="select-wrap">
       <select id="pairsCountSelect" class="custom-select">
@@ -804,7 +795,6 @@
     let savedCategories = {};
     let currentCategoryId = '';
     let currentMode = 'open'; // 'open' (明牌) 或 'memory' (暗牌)
-    let enableSpellingChallenge = false;
     let targetPairsCount = 8;
     let audioEnabled = true;
 
@@ -942,7 +932,6 @@
         if (rawSettings) {
           const s = JSON.parse(rawSettings);
           if (s.mode) currentMode = s.mode;
-          if (s.spelling !== undefined) enableSpellingChallenge = !!s.spelling;
           if (s.pairs) targetPairsCount = parseInt(s.pairs, 10);
         }
       } catch (e) {}
@@ -953,7 +942,6 @@
         localStorage.setItem(STORAGE_KEY_LAST_CAT, currentCategoryId);
         localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify({
           mode: currentMode,
-          spelling: enableSpellingChallenge,
           pairs: targetPairsCount
         }));
       } catch (e) {}
@@ -1007,7 +995,6 @@
     const currentModeTag = document.getElementById('currentModeTag');
     const categorySelect = document.getElementById('categorySelect');
     const modeSelect = document.getElementById('modeSelect');
-    const spellingToggleSelect = document.getElementById('spellingToggleSelect');
     const pairsCountSelect = document.getElementById('pairsCountSelect');
     const restartBtn = document.getElementById('restartBtn');
     const toggleAudioBtn = document.getElementById('toggleAudioBtn');
@@ -1317,38 +1304,28 @@
       const card1PairId = firstCard.dataset.pairId;
       const card2PairId = secondCard.dataset.pairId;
 
-      // 同屬性（同為 EN 或同為 CH）則轉移選取焦點
-      if (card1Type === card2Type) {
-        firstCard.classList.remove('card-selected', 'card-selected-zh');
-        if (isMemory) {
-          const firstInner = firstCard.querySelector('.card-inner');
-          if (firstInner) firstInner.classList.add('flipped');
-        }
-        firstCard = secondCard;
-        secondCard = null;
-        return;
-      }
-
-      // 配對比對
+      // 配對比對（嚴格檢驗：必須是一中一英且屬於同一配對；若點選兩張中文或兩張英文，均視為失誤並計錯）
       isProcessing = true;
 
-      if (card1PairId === card2PairId) {
-        // === 配對成功 ===
+      if (card1Type !== card2Type && card1PairId === card2PairId) {
+        // === 配對成功：一律強制進入拼字挑戰 ===
         currentCombo++;
         if (currentCombo > maxCombo) maxCombo = currentCombo;
         comboDisplay.textContent = currentCombo.toString();
 
-        if (enableSpellingChallenge) {
-          // 觸發拼字挑戰彈窗
-          pendingMatchedCard1 = firstCard;
-          pendingMatchedCard2 = secondCard;
+        // 觸發拼字挑戰彈窗
+        pendingMatchedCard1 = firstCard;
+        pendingMatchedCard2 = secondCard;
 
-          const enCardData = (card1Type === 'en') ? cards[parseInt(firstCard.dataset.index, 10)] : cards[parseInt(secondCard.dataset.index, 10)];
-          const zhCardData = (card1Type === 'zh') ? cards[parseInt(firstCard.dataset.index, 10)] : cards[parseInt(secondCard.dataset.index, 10)];
+        const enCardData = (card1Type === 'en') ? cards[parseInt(firstCard.dataset.index, 10)] : cards[parseInt(secondCard.dataset.index, 10)];
+        const zhCardData = (card1Type === 'zh') ? cards[parseInt(firstCard.dataset.index, 10)] : cards[parseInt(secondCard.dataset.index, 10)];
 
-          pendingTargetWord = enCardData.cleanWord;
-          hintRevealIndex = 0;
+        pendingTargetWord = enCardData.cleanWord;
+        hintRevealIndex = 0;
 
+        // 若為暗牌模式，稍作延遲待翻牌完成後再開啟彈窗
+        const delayShowModal = isMemory ? 400 : 0;
+        setTimeout(() => {
           spellingChinesePrompt.textContent = zhCardData.text;
           spellingInput.value = '';
           spellingErrorMsg.textContent = '';
@@ -1356,35 +1333,36 @@
           spellingModal.classList.remove('hidden');
 
           setTimeout(() => spellingInput.focus(), 150);
-        } else {
-          // 直接消除
-          finalizeMatchSuccess(firstCard, secondCard);
-        }
+        }, delayShowModal);
       } else {
-        // === 配對失敗 ===
-        currentCombo = 0;
-        mistakes++;
-        comboDisplay.textContent = '0';
-        playMismatchSound();
-
-        firstCard.classList.add('card-shake');
-        secondCard.classList.add('card-shake');
+        // === 配對失敗：暗牌模式先保留 300 毫秒翻開看清，再執行失誤動作 ===
+        const delayBeforeError = isMemory ? 300 : 0;
 
         setTimeout(() => {
-          firstCard.classList.remove('card-shake', 'card-selected', 'card-selected-zh');
-          secondCard.classList.remove('card-shake', 'card-selected', 'card-selected-zh');
+          currentCombo = 0;
+          mistakes++;
+          comboDisplay.textContent = '0';
+          playMismatchSound();
 
-          if (isMemory) {
-            const inner1 = firstCard.querySelector('.card-inner');
-            const inner2 = secondCard.querySelector('.card-inner');
-            if (inner1) inner1.classList.add('flipped');
-            if (inner2) inner2.classList.add('flipped');
-          }
+          firstCard.classList.add('card-shake');
+          secondCard.classList.add('card-shake');
 
-          firstCard = null;
-          secondCard = null;
-          isProcessing = false;
-        }, 550);
+          setTimeout(() => {
+            firstCard.classList.remove('card-shake', 'card-selected', 'card-selected-zh');
+            secondCard.classList.remove('card-shake', 'card-selected', 'card-selected-zh');
+
+            if (isMemory) {
+              const inner1 = firstCard.querySelector('.card-inner');
+              const inner2 = secondCard.querySelector('.card-inner');
+              if (inner1) inner1.classList.add('flipped');
+              if (inner2) inner2.classList.add('flipped');
+            }
+
+            firstCard = null;
+            secondCard = null;
+            isProcessing = false;
+          }, 550);
+        }, delayBeforeError);
       }
     }
 
@@ -1762,12 +1740,6 @@
       initGame();
     });
 
-    spellingToggleSelect.addEventListener('change', (e) => {
-      enableSpellingChallenge = (e.target.value === 'on');
-      saveGameSettings();
-      initGame();
-    });
-
     pairsCountSelect.addEventListener('change', (e) => {
       targetPairsCount = parseInt(e.target.value, 10);
       saveGameSettings();
@@ -1804,7 +1776,6 @@
       loadGameSettings();
 
       if (modeSelect) modeSelect.value = currentMode;
-      if (spellingToggleSelect) spellingToggleSelect.value = enableSpellingChallenge ? 'on' : 'off';
       if (pairsCountSelect) pairsCountSelect.value = targetPairsCount.toString();
 
       checkImport();
